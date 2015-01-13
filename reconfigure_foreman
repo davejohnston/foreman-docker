@@ -1,0 +1,90 @@
+#!/bin/bash
+
+function log_and_exit {
+    echo -e "\n\n\t$1. e.g.\n";
+    echo -e "\t$2=$3\n"
+    exit 1;
+}
+
+ipaddress=`facter ipaddress_eth1`
+if [[ $? -ne 0 ]]; then
+ log_and_exit "No IP found on interface eth1, check pipework command" "command " " pipework eth0 foreman 10.30.0.2/24"}
+fi
+
+enable_dhcp=false
+dhcp_range=''
+debug=false
+
+
+ARGS=$(getopt -o s: --long "dhcp-range:,enable-dhcp,help,debug" -n "$0" -- "$@")
+[ $? -eq 0 ] || {
+    echo -e "\tInvalid Options provided"
+    usage;
+    exit 1
+}
+
+eval set -- "$ARGS";
+while true; do
+    case "$1" in
+    --dhcp-range)
+        shift;
+        if [ -n "$1" ]; then
+            dhcp_range=$1
+            shift;
+        fi
+        ;;
+    --enable-dhcp)
+        enable_dhcp=true
+        shift;
+        ;;
+    --debug)
+        debug=true
+        shift;
+        ;;
+    --help)
+        usage
+        exit 0
+        shift;
+        ;;
+    --)
+        shift;
+        break;
+        ;;
+    esac
+done
+
+foreman_options="$FOREOPTS \
+ --enable-foreman-proxy \
+ --foreman-proxy-tftp=true \
+ --foreman-proxy-tftp-servername="${ipaddress}" \
+ --foreman-proxy-dns=true \
+ --foreman-proxy-dns-interface=eth1 \
+ --foreman-proxy-dns-zone=`dnsdomainname`\
+ --foreman-proxy-dns-forwarders=8.8.8.8 \
+ --foreman-proxy-foreman-base-url=https://`hostname -f`"
+
+if [[ $enable_dhcp == true ]]; then
+  [[ -z $dhcp_range ]] && { log_and_exit "No dhcp range provided" "--dhcp-range" "10.30.0.100 10.30.0.200"; }
+  foreman_options="$foreman_options \
+ --foreman-proxy-dhcp=true \
+ --foreman-proxy-dhcp-interface=eth1 \
+ --foreman-proxy-dhcp-gateway=\"${ipaddress}\" \
+ --foreman-proxy-dhcp-nameservers=\"${ipaddress}\" \
+ --foreman-proxy-dhcp-range=\"${dhcp_range}\""
+fi
+
+eval foreman-installer $foreman_options
+
+# Wait again for processes to start
+sleep 60;
+
+echo "Setting up Provisioning Template..."
+hammer -s localhost -u admin -p changeme template update --name "PXELinux global default" --file /tmp/pxe_global_default
+
+echo "Building Default PXE Profile..."
+curl -s -H "Accept:application/json" -k -u admin:changeme https://localhost/api/config_templates/build_pxe_default
+
+# Tail the log, to prevent the process from exiting, and return
+# feedback to the console about the execution of the above.
+#
+tail -f /var/log/foreman-installer/foreman-installer.log

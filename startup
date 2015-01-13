@@ -1,0 +1,32 @@
+#!/bin/bash
+
+echo -e "Waiting for Container to be plubmed on eth1...\n\t
+ Run pipework <local interface> <container name> <ip>\n\n\t\t
+ e.g. pipework eth0 foreman 10.30.0.2/24"
+pipework --wait
+
+# Wait for a few seconds for everything to sort itself out
+#
+sleep 5;
+
+# Update /etc/hosts so that both 'hostname -f' and 'facter fqdn' match 
+# and return the corrent hostname
+puppet apply -e 'host { $::hostname: ensure => absent } -> host { "${::hostname}.${::domain}": ip => $::ipaddress, host_aliases => [$::hostname] }'
+# Rerun foreman-installer.  This allows users to set there own runtime config and will update the hostname
+# N.B this is faster than a full install.
+#
+echo "Resetting Foreman Database..."
+foreman-installer --reset-foreman-db &> /dev/null
+eval foreman-installer $foreman_options
+
+# Wait again for processes to start
+sleep 30;
+
+# Remove the old proxy that was created during the inital build 
+# N.B we should move this into the Dockerfile as a post build step
+#
+OLD_PROXY=`cat /tmp/old_proxy_name`
+hammer -s localhost -u admin -p changeme proxy delete --name "$OLD_PROXY"
+service puppet restart
+
+exec /usr/bin/reconfigure_foreman $@
