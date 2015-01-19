@@ -11,11 +11,11 @@ ENV FOREOPTS --enable-foreman-compute-ec2 \
  --enable-foreman \
  --enable-puppet \
  --foreman-admin-password changeme 
-
+ 
 RUN yum install -y \
  https://anorien.csc.warwick.ac.uk/mirrors/epel/6/x86_64/epel-release-6-8.noarch.rpm \
  http://yum.theforeman.org/releases/1.7/el6/x86_64/foreman-release.rpm \
- && wget https://raw.githubusercontent.com/jpetazzo/pipework/master/pipework -O /usr/bin/pipework
+ http://yum.puppetlabs.com/puppetlabs-release-el-6.noarch.rpm
 
 RUN yum install -y scl-utils \
  rhscl-ruby193* \
@@ -23,6 +23,8 @@ RUN yum install -y scl-utils \
  tar \
  puppet \
  foreman-installer 
+
+RUN wget https://raw.githubusercontent.com/jpetazzo/pipework/master/pipework -O /usr/bin/pipework
 
 RUN puppet apply -e 'host { $::hostname: ensure => absent } -> host { "${::hostname}.docker.local": ip => $::ipaddress, host_aliases => [$::hostname] }' \
  && cp /etc/foreman/foreman-installer-answers.yaml /tmp \
